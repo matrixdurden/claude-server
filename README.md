@@ -1,8 +1,8 @@
 # claude-server
 
-Minimal TUI for running Claude Code Remote Control on Linux.
+Portable TUI for managing always-on Claude Code Remote Control sessions on Linux.
 
-No Docker. No Claude Code installer. No service IDs to remember.
+No Docker. No installed manager. No service IDs to remember.
 
 ## Requirements
 
@@ -11,24 +11,18 @@ No Docker. No Claude Code installer. No service IDs to remember.
 - Claude Code signed in
 - Workspace trust / Remote Control first-use consent completed when prompted
 
-## Setup
+## Run
 
-Run once:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/setup.sh | bash
-```
-
-Then use:
+Every time you want to manage it, run:
 
 ```bash
-claude-server
+curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/claude-server.sh | bash
 ```
 
-The TUI gives you:
+That opens the TUI directly:
 
 ```text
-claude-server
+Claude Remote
 
 Manage Remote Control
 
@@ -36,48 +30,32 @@ Manage Remote Control
     Remove project
     List projects
     Exit
+
+↑/↓ move   Enter select   q back
 ```
 
-Use `↑` / `↓` and `Enter`.
+Nothing is installed as a `claude-server` command. The script runs from the pipe and exits when you leave the TUI.
 
-### Add project
+## Add project
 
-Choose **Add project** and enter a directory:
+Choose **Add project**, type a directory path, and press Enter.
 
-```text
-Project path [/home/user]: /srv/api
-```
+Press Enter without typing a path to use the current directory.
 
-Pressing Enter without typing anything uses the current directory.
+Each project gets its own persistent `systemd --user` Remote Control service. The service restarts automatically and survives logout/reboot.
 
-### Remove project
+## Remove project
 
-Choose **Remove project**, select the directory with the arrow keys, then confirm.
+Choose **Remove project**, select a configured directory with the arrow keys, and confirm.
 
-### List projects
+When the last project is removed, the shared systemd template is cleaned up automatically.
+
+## List projects
 
 Shows configured directories and whether each Remote Control server is running.
 
-## Full uninstall
+## Notes
 
-Removes the manager and all Claude Remote services:
+The TUI itself is stateless and portable. Only the systemd services needed to keep your selected Claude Remote projects running are persisted.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/uninstall.sh | bash -s -- --all
-```
-
-Claude Code itself and systemd linger are left untouched.
-
-## Non-interactive
-
-The old script interface is still available for automation:
-
-```bash
-# add
-curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/install.sh | bash -s -- /srv/api /srv/web
-
-# remove
-curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/uninstall.sh | bash -s -- /srv/api
-```
-
-Each project gets its own `systemd --user` Remote Control service with automatic restart and reboot persistence.
+Claude Code itself is never installed, updated, or removed by this script.
