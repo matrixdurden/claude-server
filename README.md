@@ -1,62 +1,82 @@
 # claude-server
 
-Minimal always-on Claude Code Remote Control service for Linux.
+Minimal always-on Claude Code Remote Control services for Linux.
 
-No Docker. No Claude Code installer. Just a small `systemd --user` service.
+No Docker. No Claude Code installer. One systemd template, any number of project directories.
 
 ## Prerequisites
 
 - Linux with systemd
 - Claude Code already installed and available as `claude`
-- Signed in to Claude Code with your Claude account
-- Workspace trust accepted for the project directory
-- Remote Control first-use consent completed, if Claude prompts for it
+- Signed in to Claude Code
+- Workspace trust accepted for each project
 
 ## Install
 
-Run from the project directory you want Claude to control:
+Current directory:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/install.sh | bash
 ```
 
-Or pass the project directory explicitly:
+One project:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/install.sh | bash -s -- /path/to/project
+curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/install.sh | bash -s -- /srv/api
 ```
 
-The installer:
+Multiple projects:
 
-- finds your existing `claude` binary
-- creates `~/.config/systemd/user/claude-remote.service`
-- preserves your current `PATH` for remote sessions
-- enables systemd linger so it survives logout and reboot
-- enables and starts the service
-- can be run again safely to update the configuration
+```bash
+curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/install.sh | bash -s -- /srv/api /srv/web /srv/infra
+```
+
+Each directory gets its own Remote Control server. Re-running install is safe and can add more projects.
+
+The installer also migrates the old single `claude-remote.service` setup automatically.
 
 ## Uninstall
+
+Current directory:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/uninstall.sh | bash
 ```
 
-This removes only the Remote Control service. Claude Code and systemd linger are left untouched.
-
-## Commands
+One or more projects:
 
 ```bash
-systemctl --user status claude-remote.service
-systemctl --user restart claude-remote.service
-journalctl --user -u claude-remote.service -f
+curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/uninstall.sh | bash -s -- /srv/api /srv/web
 ```
 
-## Notes
+Everything:
 
-Remote Control uses Claude Code's server mode:
+```bash
+curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/uninstall.sh | bash -s -- --all
+```
+
+Claude Code and systemd linger are left untouched.
+
+## Change a project directory
+
+Remove the old path, then install the new one:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/uninstall.sh | bash -s -- /srv/old
+curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/install.sh | bash -s -- /srv/new
+```
+
+## Status and logs
+
+```bash
+systemctl --user list-units 'claude-remote@*.service'
+journalctl --user -u 'claude-remote@*.service' -f
+```
+
+Remote Control runs as:
 
 ```bash
 claude remote-control --spawn same-dir
 ```
 
-Authentication, workspace trust, and first-use consent are intentionally not automated. Complete those once interactively before installing the service.
+Authentication and workspace trust are intentionally not automated.
