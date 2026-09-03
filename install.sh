@@ -39,7 +39,6 @@ fi
 
 mkdir -p "$UNIT_DIR"
 
-# Migrate the original single-project service, if present.
 systemctl --user disable --now claude-remote.service >/dev/null 2>&1 || true
 rm -f "$LEGACY_UNIT"
 
@@ -48,13 +47,13 @@ PATH_ESC="$(escape_unit "$PATH_VALUE")"
 
 cat > "$UNIT" <<EOF_UNIT
 [Unit]
-Description=Claude Code Remote Control - %I
+Description=Claude Code Remote Control - %f
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=%I
+WorkingDirectory=%f
 Environment="PATH=$PATH_ESC"
 ExecStart="$CLAUDE_ESC" remote-control --spawn same-dir
 Restart=always
