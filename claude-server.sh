@@ -21,12 +21,19 @@ SELECTED=0
 STATUS=""
 
 fail() {
-  printf '\n%s%s%serror:%s %s\n' "$BOLD" "$RED" "$RESET" "$RESET" "$*" >&2
+  printf '\n%s%serror:%s %s\n' "$BOLD" "$RED" "$RESET" "$*" >&2
   exit 1
 }
 
 have() {
   command -v "$1" >/dev/null 2>&1
+}
+
+claude_bin() {
+  local bin
+  bin="$(type -P claude || true)"
+  [[ -n "$bin" && -x "$bin" ]] || fail "claude is not installed or not in PATH"
+  readlink -f "$bin" 2>/dev/null || printf '%s' "$bin"
 }
 
 clear_screen() {
@@ -68,15 +75,13 @@ ensure_linger() {
 }
 
 ensure_template() {
-  local claude_bin path_value claude_esc path_esc
+  local bin path_value bin_esc path_esc
 
   have systemctl || fail "systemd is required"
   have systemd-escape || fail "systemd-escape is required"
   have loginctl || fail "systemd-logind is required"
 
-  claude_bin="$(type -P claude || true)"
-  [[ -n "$claude_bin" && -x "$claude_bin" ]] || fail "claude is not installed or not in PATH"
-  claude_bin="$(readlink -f "$claude_bin" 2>/dev/null || printf '%s' "$claude_bin")"
+  bin="$(claude_bin)"
   path_value="${PATH:-/usr/local/bin:/usr/bin:/bin}"
 
   ensure_linger
@@ -85,7 +90,7 @@ ensure_template() {
   systemctl --user disable --now claude-remote.service >/dev/null 2>&1 || true
   rm -f "$LEGACY_UNIT"
 
-  claude_esc="$(escape_unit_value "$claude_bin")"
+  bin_esc="$(escape_unit_value "$bin")"
   path_esc="$(escape_unit_value "$path_value")"
 
   cat > "$UNIT" <<EOF_UNIT
@@ -98,7 +103,7 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=%f
 Environment="PATH=$path_esc"
-ExecStart="$claude_esc" remote-control --spawn same-dir
+ExecStart="$bin_esc" remote-control --spawn same-dir
 Restart=always
 RestartSec=10
 
@@ -179,6 +184,33 @@ render() {
   printf '\n%s↑↓ select   a add   del delete   q quit%s\n' "$DIM" "$RESET"
 }
 
+wait_running() {
+  local service="$1"
+  local i
+
+  for ((i = 0; i < 8; i++)); do
+    systemctl --user is-active --quiet "$service" 2>/dev/null && return 0
+    sleep 0.25
+  done
+  return 1
+}
+
+onboard_project() {
+  local project="$1"
+  local bin
+  bin="$(claude_bin)"
+
+  clear_screen
+  printf '%s%sClaude Remote%s\n\n' "$BOLD" "$CYAN" "$RESET"
+  printf 'Claude needs one-time setup for:\n\n  %s\n\n' "$project"
+  printf '%sComplete any login / workspace trust prompts, then use /exit to return here.%s\n\n' "$DIM" "$RESET"
+
+  (
+    cd "$project"
+    "$bin" < "$TTY" > "$TTY" 2>&1
+  ) || true
+}
+
 add_project() {
   render
   printf '\n%sPath%s [%s]: ' "$CYAN" "$RESET" "$PWD"
@@ -201,6 +233,16 @@ add_project() {
 
   systemctl --user enable "$service" >/dev/null
   systemctl --user restart "$service"
+
+  if ! wait_running "$service"; then
+    systemctl --user stop "$service" >/dev/null 2>&1 || true
+    onboard_project "$project"
+    systemctl --user restart "$service"
+
+    if ! wait_running "$service"; then
+      STATUS="Remote Control could not start for $project"
+    fi
+  fi
 
   load_projects
   for i in "${!PROJECT_PATHS[@]}"; do
