@@ -6,6 +6,14 @@ UNIT="$UNIT_DIR/claude-remote@.service"
 LEGACY_UNIT="$UNIT_DIR/claude-remote.service"
 TTY=/dev/tty
 
+RESET=$'\033[0m'
+BOLD=$'\033[1m'
+DIM=$'\033[2m'
+CYAN=$'\033[36m'
+GREEN=$'\033[32m'
+YELLOW=$'\033[33m'
+RED=$'\033[31m'
+
 PROJECT_PATHS=()
 PROJECT_SERVICES=()
 PROJECT_STATES=()
@@ -13,7 +21,7 @@ SELECTED=0
 STATUS=""
 
 fail() {
-  printf '\nerror: %s\n' "$*" >&2
+  printf '\n%s%s%serror:%s %s\n' "$BOLD" "$RED" "$RESET" "$RESET" "$*" >&2
   exit 1
 }
 
@@ -52,7 +60,7 @@ ensure_linger() {
     loginctl enable-linger "$user"
   elif have sudo; then
     clear_screen
-    printf 'Claude Remote\n\nSystemd linger is required once for reboot/logout persistence.\n\n'
+    printf '%s%sClaude Remote%s\n\nSystemd linger is required once for reboot/logout persistence.\n\n' "$BOLD" "$CYAN" "$RESET"
     sudo loginctl enable-linger "$user"
   else
     fail "sudo is required once to enable systemd linger"
@@ -146,31 +154,34 @@ cleanup_template_if_empty() {
 render() {
   load_projects
   clear_screen
-  printf 'Claude Remote\n\n'
+  printf '%s%sClaude Remote%s\n\n' "$BOLD" "$CYAN" "$RESET"
 
   if (( ${#PROJECT_PATHS[@]} == 0 )); then
-    printf '  No projects\n'
+    printf '  %sNo projects%s\n' "$DIM" "$RESET"
   else
-    local i mark line
+    local i mark
     for i in "${!PROJECT_PATHS[@]}"; do
-      [[ "${PROJECT_STATES[$i]}" == "running" ]] && mark='●' || mark='○'
-      line="$mark ${PROJECT_PATHS[$i]}"
+      if [[ "${PROJECT_STATES[$i]}" == "running" ]]; then
+        mark="${GREEN}●${RESET}"
+      else
+        mark="${YELLOW}○${RESET}"
+      fi
 
       if (( i == SELECTED )); then
-        printf '\033[7m› %s\033[0m\n' "$line"
+        printf '%s%s›%s %b %s\n' "$BOLD" "$CYAN" "$RESET" "$mark" "${PROJECT_PATHS[$i]}"
       else
-        printf '  %s\n' "$line"
+        printf '  %b %s\n' "$mark" "${PROJECT_PATHS[$i]}"
       fi
     done
   fi
 
-  [[ -n "$STATUS" ]] && printf '\n%s\n' "$STATUS"
-  printf '\n↑↓ select   a add   del delete   q quit\n'
+  [[ -n "$STATUS" ]] && printf '\n%s%s%s\n' "$RED" "$STATUS" "$RESET"
+  printf '\n%s↑↓ select   a add   del delete   q quit%s\n' "$DIM" "$RESET"
 }
 
 add_project() {
   render
-  printf '\nPath [%s]: ' "$PWD"
+  printf '\n%sPath%s [%s]: ' "$CYAN" "$RESET" "$PWD"
 
   local input project instance service i
   IFS= read -er input < "$TTY" || return
@@ -191,7 +202,6 @@ add_project() {
   systemctl --user enable "$service" >/dev/null
   systemctl --user restart "$service"
 
-  STATUS="Added: $project"
   load_projects
   for i in "${!PROJECT_PATHS[@]}"; do
     if [[ "${PROJECT_PATHS[$i]}" == "$project" ]]; then
@@ -205,13 +215,10 @@ delete_selected() {
   load_projects
   (( ${#PROJECT_PATHS[@]} )) || return
 
-  local project="${PROJECT_PATHS[$SELECTED]}"
   local service="${PROJECT_SERVICES[$SELECTED]}"
 
   systemctl --user disable --now "$service" >/dev/null 2>&1 || true
   systemctl --user reset-failed "$service" >/dev/null 2>&1 || true
-
-  STATUS="Deleted: $project"
   cleanup_template_if_empty
 }
 
