@@ -6,6 +6,12 @@ UNIT="$UNIT_DIR/claude-remote@.service"
 LEGACY_UNIT="$UNIT_DIR/claude-remote.service"
 TTY=/dev/tty
 
+PROJECT_PATHS=()
+PROJECT_SERVICES=()
+PROJECT_STATES=()
+SELECTED=0
+STATUS=""
+
 fail() {
   printf '\nerror: %s\n' "$*" >&2
   exit 1
@@ -17,11 +23,6 @@ have() {
 
 clear_screen() {
   printf '\033[2J\033[H'
-}
-
-pause() {
-  printf '\nPress any key to continue...'
-  IFS= read -rsn1 _ < "$TTY" || true
 }
 
 expand_path() {
@@ -50,7 +51,8 @@ ensure_linger() {
   if (( EUID == 0 )); then
     loginctl enable-linger "$user"
   elif have sudo; then
-    printf '\nSystemd linger is required so Remote Control survives logout/reboot.\n'
+    clear_screen
+    printf 'Claude Remote\n\nSystemd linger is required once for reboot/logout persistence.\n\n'
     sudo loginctl enable-linger "$user"
   else
     fail "sudo is required once to enable systemd linger"
@@ -78,7 +80,7 @@ ensure_template() {
   claude_esc="$(escape_unit_value "$claude_bin")"
   path_esc="$(escape_unit_value "$path_value")"
 
-  cat > "$UNIT" <<EOF
+  cat > "$UNIT" <<EOF_UNIT
 [Unit]
 Description=Claude Code Remote Control - %f
 After=network-online.target
@@ -94,7 +96,7 @@ RestartSec=10
 
 [Install]
 WantedBy=default.target
-EOF
+EOF_UNIT
 
   systemctl --user daemon-reload
 }
@@ -126,68 +128,59 @@ load_projects() {
     PROJECT_STATES+=("$state")
   done
   shopt -u nullglob
+
+  if (( ${#PROJECT_PATHS[@]} == 0 )); then
+    SELECTED=0
+  elif (( SELECTED >= ${#PROJECT_PATHS[@]} )); then
+    SELECTED=$((${#PROJECT_PATHS[@]} - 1))
+  fi
 }
 
 cleanup_template_if_empty() {
   load_projects
   (( ${#PROJECT_PATHS[@]} )) && return
-
   rm -f "$UNIT"
   systemctl --user daemon-reload
 }
 
-menu() {
-  local title="$1"
-  shift
-  local items=("$@")
-  local selected=0 key seq i
+render() {
+  load_projects
+  clear_screen
+  printf 'Claude Remote\n\n'
 
-  while true; do
-    clear_screen
-    printf 'Claude Remote\n\n%s\n\n' "$title"
+  if (( ${#PROJECT_PATHS[@]} == 0 )); then
+    printf '  No projects\n'
+  else
+    local i mark line
+    for i in "${!PROJECT_PATHS[@]}"; do
+      [[ "${PROJECT_STATES[$i]}" == "running" ]] && mark='●' || mark='○'
+      line="$mark ${PROJECT_PATHS[$i]}"
 
-    for i in "${!items[@]}"; do
-      if (( i == selected )); then
-        printf '  \033[7m› %s\033[0m\n' "${items[$i]}"
+      if (( i == SELECTED )); then
+        printf '\033[7m› %s\033[0m\n' "$line"
       else
-        printf '    %s\n' "${items[$i]}"
+        printf '  %s\n' "$line"
       fi
     done
+  fi
 
-    printf '\n↑/↓ move   Enter select   q back\n'
-
-    IFS= read -rsn1 key < "$TTY" || return 1
-    case "$key" in
-      '') MENU_SELECTED=$selected; return 0 ;;
-      q|Q) return 1 ;;
-      $'\x1b')
-        IFS= read -rsn2 -t 0.1 seq < "$TTY" || true
-        case "$seq" in
-          '[A') (( selected = (selected - 1 + ${#items[@]}) % ${#items[@]} )) ;;
-          '[B') (( selected = (selected + 1) % ${#items[@]} )) ;;
-        esac
-        ;;
-      k) (( selected = (selected - 1 + ${#items[@]}) % ${#items[@]} )) ;;
-      j) (( selected = (selected + 1) % ${#items[@]} )) ;;
-    esac
-  done
+  [[ -n "$STATUS" ]] && printf '\n%s\n' "$STATUS"
+  printf '\n↑↓ select   a add   del delete   q quit\n'
 }
 
 add_project() {
-  clear_screen
-  printf 'Claude Remote\n\nAdd project\n\n'
-  printf 'Project path [%s]: ' "$PWD"
+  render
+  printf '\nPath [%s]: ' "$PWD"
 
-  local input project instance service
-  IFS= read -er input < "$TTY"
+  local input project instance service i
+  IFS= read -er input < "$TTY" || return
   input="${input:-$PWD}"
   project="$(expand_path "$input")"
 
-  [[ -d "$project" ]] || {
-    printf '\nDirectory not found: %s\n' "$project"
-    pause
+  if [[ ! -d "$project" ]]; then
+    STATUS="Directory not found: $project"
     return
-  }
+  fi
 
   project="$(cd "$project" && pwd -P)"
   ensure_template
@@ -198,59 +191,56 @@ add_project() {
   systemctl --user enable "$service" >/dev/null
   systemctl --user restart "$service"
 
-  printf '\nAdded: %s\n' "$project"
-  pause
-}
-
-remove_project() {
+  STATUS="Added: $project"
   load_projects
-
-  if (( ${#PROJECT_PATHS[@]} == 0 )); then
-    clear_screen
-    printf 'Claude Remote\n\nNo projects configured.\n'
-    pause
-    return
-  fi
-
-  local items=() i answer
   for i in "${!PROJECT_PATHS[@]}"; do
-    items+=("${PROJECT_PATHS[$i]}  [${PROJECT_STATES[$i]}]")
+    if [[ "${PROJECT_PATHS[$i]}" == "$project" ]]; then
+      SELECTED=$i
+      break
+    fi
   done
-
-  menu "Remove project" "${items[@]}" || return
-  i=$MENU_SELECTED
-
-  clear_screen
-  printf 'Remove this project?\n\n  %s\n\n[y/N] ' "${PROJECT_PATHS[$i]}"
-  IFS= read -rsn1 answer < "$TTY" || true
-  printf '\n'
-
-  [[ "$answer" == y || "$answer" == Y ]] || return
-
-  systemctl --user disable --now "${PROJECT_SERVICES[$i]}" >/dev/null 2>&1 || true
-  systemctl --user reset-failed "${PROJECT_SERVICES[$i]}" >/dev/null 2>&1 || true
-  cleanup_template_if_empty
-
-  printf '\nRemoved: %s\n' "${PROJECT_PATHS[$i]}"
-  pause
 }
 
-list_projects() {
+delete_selected() {
   load_projects
-  clear_screen
-  printf 'Claude Remote\n\nProjects\n\n'
+  (( ${#PROJECT_PATHS[@]} )) || return
 
-  if (( ${#PROJECT_PATHS[@]} == 0 )); then
-    printf '  No projects configured.\n'
-  else
-    local i mark
-    for i in "${!PROJECT_PATHS[@]}"; do
-      [[ "${PROJECT_STATES[$i]}" == running ]] && mark='●' || mark='○'
-      printf '  %s %-8s %s\n' "$mark" "${PROJECT_STATES[$i]}" "${PROJECT_PATHS[$i]}"
-    done
-  fi
+  local project="${PROJECT_PATHS[$SELECTED]}"
+  local service="${PROJECT_SERVICES[$SELECTED]}"
 
-  pause
+  systemctl --user disable --now "$service" >/dev/null 2>&1 || true
+  systemctl --user reset-failed "$service" >/dev/null 2>&1 || true
+
+  STATUS="Deleted: $project"
+  cleanup_template_if_empty
+}
+
+move_up() {
+  load_projects
+  (( ${#PROJECT_PATHS[@]} )) || return
+  (( SELECTED = (SELECTED - 1 + ${#PROJECT_PATHS[@]}) % ${#PROJECT_PATHS[@]} ))
+}
+
+move_down() {
+  load_projects
+  (( ${#PROJECT_PATHS[@]} )) || return
+  (( SELECTED = (SELECTED + 1) % ${#PROJECT_PATHS[@]} ))
+}
+
+handle_escape() {
+  local c1="" c2="" c3=""
+  IFS= read -rsn1 -t 0.1 c1 < "$TTY" || true
+  [[ "$c1" == "[" ]] || return
+
+  IFS= read -rsn1 -t 0.1 c2 < "$TTY" || true
+  case "$c2" in
+    A) move_up ;;
+    B) move_down ;;
+    3)
+      IFS= read -rsn1 -t 0.1 c3 < "$TTY" || true
+      [[ "$c3" == "~" ]] && delete_selected
+      ;;
+  esac
 }
 
 main() {
@@ -258,18 +248,19 @@ main() {
   have systemctl || fail "systemd is required"
   have systemd-escape || fail "systemd-escape is required"
 
+  local key
   while true; do
-    menu "Manage Remote Control" \
-      "Add project" \
-      "Remove project" \
-      "List projects" \
-      "Exit" || break
+    render
+    STATUS=""
 
-    case "$MENU_SELECTED" in
-      0) add_project ;;
-      1) remove_project ;;
-      2) list_projects ;;
-      3) break ;;
+    IFS= read -rsn1 key < "$TTY" || break
+    case "$key" in
+      q|Q) break ;;
+      a|A) add_project ;;
+      d|D) delete_selected ;;
+      k) move_up ;;
+      j) move_down ;;
+      $'\x1b') handle_escape ;;
     esac
   done
 
