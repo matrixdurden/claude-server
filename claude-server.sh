@@ -188,8 +188,12 @@ wait_running() {
   local service="$1"
   local i
 
-  for ((i = 0; i < 8; i++)); do
-    systemctl --user is-active --quiet "$service" 2>/dev/null && return 0
+  sleep 0.75
+  for ((i = 0; i < 4; i++)); do
+    if systemctl --user is-active --quiet "$service" 2>/dev/null; then
+      sleep 0.5
+      systemctl --user is-active --quiet "$service" 2>/dev/null && return 0
+    fi
     sleep 0.25
   done
   return 1
