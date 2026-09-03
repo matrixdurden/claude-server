@@ -1,82 +1,83 @@
 # claude-server
 
-Minimal always-on Claude Code Remote Control services for Linux.
+Minimal TUI for running Claude Code Remote Control on Linux.
 
-No Docker. No Claude Code installer. One systemd template, any number of project directories.
+No Docker. No Claude Code installer. No service IDs to remember.
 
-## Prerequisites
+## Requirements
 
 - Linux with systemd
 - Claude Code already installed and available as `claude`
-- Signed in to Claude Code
-- Workspace trust accepted for each project
+- Claude Code signed in
+- Workspace trust / Remote Control first-use consent completed when prompted
 
-## Install
+## Setup
 
-Current directory:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/install.sh | bash
-```
-
-One project:
+Run once:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/install.sh | bash -s -- /srv/api
+curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/setup.sh | bash
 ```
 
-Multiple projects:
+Then use:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/install.sh | bash -s -- /srv/api /srv/web /srv/infra
+claude-server
 ```
 
-Each directory gets its own Remote Control server. Re-running install is safe and can add more projects.
+The TUI gives you:
 
-The installer also migrates the old single `claude-remote.service` setup automatically.
+```text
+claude-server
 
-## Uninstall
+Manage Remote Control
 
-Current directory:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/uninstall.sh | bash
+  › Add project
+    Remove project
+    List projects
+    Exit
 ```
 
-One or more projects:
+Use `↑` / `↓` and `Enter`.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/uninstall.sh | bash -s -- /srv/api /srv/web
+### Add project
+
+Choose **Add project** and enter a directory:
+
+```text
+Project path [/home/user]: /srv/api
 ```
 
-Everything:
+Pressing Enter without typing anything uses the current directory.
+
+### Remove project
+
+Choose **Remove project**, select the directory with the arrow keys, then confirm.
+
+### List projects
+
+Shows configured directories and whether each Remote Control server is running.
+
+## Full uninstall
+
+Removes the manager and all Claude Remote services:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/uninstall.sh | bash -s -- --all
 ```
 
-Claude Code and systemd linger are left untouched.
+Claude Code itself and systemd linger are left untouched.
 
-## Change a project directory
+## Non-interactive
 
-Remove the old path, then install the new one:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/uninstall.sh | bash -s -- /srv/old
-curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/install.sh | bash -s -- /srv/new
-```
-
-## Status and logs
+The old script interface is still available for automation:
 
 ```bash
-systemctl --user list-units 'claude-remote@*.service'
-journalctl --user -u 'claude-remote@*.service' -f
+# add
+curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/install.sh | bash -s -- /srv/api /srv/web
+
+# remove
+curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/uninstall.sh | bash -s -- /srv/api
 ```
 
-Remote Control runs as:
-
-```bash
-claude remote-control --spawn same-dir
-```
-
-Authentication and workspace trust are intentionally not automated.
+Each project gets its own `systemd --user` Remote Control service with automatic restart and reboot persistence.
