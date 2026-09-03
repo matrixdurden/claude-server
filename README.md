@@ -8,8 +8,6 @@ No Docker. No installed manager. No service IDs.
 
 - Linux with systemd
 - Claude Code already installed and available as `claude`
-- Claude Code signed in
-- Workspace trust / Remote Control first-use consent completed when prompted
 
 ## Run
 
@@ -39,6 +37,8 @@ Claude Remote
 There are no submenus and no confirmation screens.
 
 Pressing `a` asks for a path. Press Enter on an empty path to use the current directory.
+
+If Claude Remote cannot start because the machine needs login, workspace trust, or other first-time Claude setup, the TUI automatically opens Claude in that project. Complete Claude's prompts and use `/exit`; the TUI then starts the Remote Control service and returns to the project list.
 
 `●` means the Remote Control service is running. `○` means it is configured but currently stopped.
 
