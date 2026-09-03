@@ -10,6 +10,7 @@ No Docker. No Claude Code installer. Just a small `systemd --user` service.
 - Claude Code already installed and available as `claude`
 - Signed in to Claude Code with your Claude account
 - Workspace trust accepted for the project directory
+- Remote Control first-use consent completed, if Claude prompts for it
 
 ## Install
 
@@ -58,4 +59,4 @@ Remote Control uses Claude Code's server mode:
 claude remote-control --spawn same-dir
 ```
 
-Authentication and workspace trust are intentionally not automated. If this is a fresh machine or project, complete those once interactively before installing the service.
+Authentication, workspace trust, and first-use consent are intentionally not automated. Complete those once interactively before installing the service.
