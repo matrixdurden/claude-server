@@ -1,8 +1,8 @@
 # claude-server
 
-Portable TUI for managing always-on Claude Code Remote Control sessions on Linux.
+Portable single-screen TUI for managing always-on Claude Code Remote Control sessions on Linux.
 
-No Docker. No installed manager. No service IDs to remember.
+No Docker. No installed manager. No service IDs.
 
 ## Requirements
 
@@ -13,49 +13,35 @@ No Docker. No installed manager. No service IDs to remember.
 
 ## Run
 
-Every time you want to manage it, run:
-
 ```bash
 curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/claude-server.sh | bash
 ```
 
-That opens the TUI directly:
+Nothing is installed. The script runs directly from the pipe and exits with the TUI.
 
 ```text
 Claude Remote
 
-Manage Remote Control
+  ● /srv/api
+› ● /srv/web
+  ○ /srv/old
 
-  › Add project
-    Remove project
-    List projects
-    Exit
-
-↑/↓ move   Enter select   q back
+↑↓ select   a add   del delete   q quit
 ```
 
-Nothing is installed as a `claude-server` command. The script runs from the pipe and exits when you leave the TUI.
+## Controls
 
-## Add project
+- `↑` / `↓` — select project
+- `a` — add a project path
+- `Delete` or `d` — immediately remove the selected project
+- `q` — exit
 
-Choose **Add project**, type a directory path, and press Enter.
+There are no submenus and no confirmation screens.
 
-Press Enter without typing a path to use the current directory.
+Pressing `a` asks for a path. Press Enter on an empty path to use the current directory.
 
-Each project gets its own persistent `systemd --user` Remote Control service. The service restarts automatically and survives logout/reboot.
+`●` means the Remote Control service is running. `○` means it is configured but currently stopped.
 
-## Remove project
+Each added project gets its own persistent `systemd --user` Remote Control service with automatic restart and reboot/logout persistence. When the last project is removed, the shared service template is cleaned up automatically.
 
-Choose **Remove project**, select a configured directory with the arrow keys, and confirm.
-
-When the last project is removed, the shared systemd template is cleaned up automatically.
-
-## List projects
-
-Shows configured directories and whether each Remote Control server is running.
-
-## Notes
-
-The TUI itself is stateless and portable. Only the systemd services needed to keep your selected Claude Remote projects running are persisted.
-
-Claude Code itself is never installed, updated, or removed by this script.
+The TUI itself is stateless and portable. Claude Code itself is never installed, updated, or removed by this script.
