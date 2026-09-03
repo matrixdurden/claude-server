@@ -218,13 +218,13 @@ delete_selected() {
 move_up() {
   load_projects
   (( ${#PROJECT_PATHS[@]} )) || return
-  (( SELECTED = (SELECTED - 1 + ${#PROJECT_PATHS[@]}) % ${#PROJECT_PATHS[@]} ))
+  SELECTED=$(((SELECTED - 1 + ${#PROJECT_PATHS[@]}) % ${#PROJECT_PATHS[@]}))
 }
 
 move_down() {
   load_projects
   (( ${#PROJECT_PATHS[@]} )) || return
-  (( SELECTED = (SELECTED + 1) % ${#PROJECT_PATHS[@]} ))
+  SELECTED=$(((SELECTED + 1) % ${#PROJECT_PATHS[@]}))
 }
 
 handle_escape() {
