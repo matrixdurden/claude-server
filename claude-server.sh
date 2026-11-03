@@ -3,7 +3,6 @@ set -euo pipefail
 
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 UNIT="$UNIT_DIR/claude-remote@.service"
-LEGACY_UNIT="$UNIT_DIR/claude-remote.service"
 TTY=/dev/tty
 
 RESET=$'\033[0m'
@@ -19,6 +18,7 @@ PROJECT_SERVICES=()
 PROJECT_STATES=()
 SELECTED=0
 STATUS=""
+TUI=0
 
 fail() {
   printf '\n%s%serror:%s %s\n' "$BOLD" "$RED" "$RESET" "$*" >&2
@@ -29,15 +29,27 @@ have() {
   command -v "$1" >/dev/null 2>&1
 }
 
+has_tty() {
+  [[ -r "$TTY" && -w "$TTY" ]]
+}
+
 claude_bin() {
   local bin
   bin="$(type -P claude || true)"
   [[ -n "$bin" && -x "$bin" ]] || fail "claude is not installed or not in PATH"
-  readlink -f "$bin" 2>/dev/null || printf '%s' "$bin"
+  # Keep the launcher path: Claude updates replace the versioned binary it points to.
+  printf '%s' "$bin"
 }
 
 clear_screen() {
-  printf '\033[2J\033[H'
+  if (( TUI )); then
+    printf '\033[2J\033[H'
+  fi
+}
+
+header() {
+  clear_screen
+  printf '%s%sClaude Remote%s\n\n' "$BOLD" "$CYAN" "$RESET"
 }
 
 expand_path() {
@@ -57,6 +69,10 @@ escape_unit_value() {
   printf '%s' "$value"
 }
 
+service_name() {
+  printf 'claude-remote@%s.service' "$(systemd-escape --path "$1")"
+}
+
 ensure_linger() {
   local user
   user="$(id -un)"
@@ -66,8 +82,8 @@ ensure_linger() {
   if (( EUID == 0 )); then
     loginctl enable-linger "$user"
   elif have sudo; then
-    clear_screen
-    printf '%s%sClaude Remote%s\n\nSystemd linger is required once for reboot/logout persistence.\n\n' "$BOLD" "$CYAN" "$RESET"
+    header
+    printf 'Systemd linger is required once for reboot/logout persistence.\n\n'
     sudo loginctl enable-linger "$user"
   else
     fail "sudo is required once to enable systemd linger"
@@ -75,23 +91,13 @@ ensure_linger() {
 }
 
 ensure_template() {
-  local bin path_value bin_esc path_esc
+  local bin_esc path_esc
 
-  have systemctl || fail "systemd is required"
-  have systemd-escape || fail "systemd-escape is required"
-  have loginctl || fail "systemd-logind is required"
-
-  bin="$(claude_bin)"
-  path_value="${PATH:-/usr/local/bin:/usr/bin:/bin}"
+  bin_esc="$(escape_unit_value "$(claude_bin)")"
+  path_esc="$(escape_unit_value "${PATH:-/usr/local/bin:/usr/bin:/bin}")"
 
   ensure_linger
   mkdir -p "$UNIT_DIR"
-
-  systemctl --user disable --now claude-remote.service >/dev/null 2>&1 || true
-  rm -f "$LEGACY_UNIT"
-
-  bin_esc="$(escape_unit_value "$bin")"
-  path_esc="$(escape_unit_value "$path_value")"
 
   cat > "$UNIT" <<EOF_UNIT
 [Unit]
@@ -158,8 +164,7 @@ cleanup_template_if_empty() {
 
 render() {
   load_projects
-  clear_screen
-  printf '%s%sClaude Remote%s\n\n' "$BOLD" "$CYAN" "$RESET"
+  header
 
   if (( ${#PROJECT_PATHS[@]} == 0 )); then
     printf '  %sNo projects%s\n' "$DIM" "$RESET"
@@ -204,10 +209,11 @@ onboard_project() {
   local bin
   bin="$(claude_bin)"
 
-  clear_screen
-  printf '%s%sClaude Remote%s\n\n' "$BOLD" "$CYAN" "$RESET"
+  has_tty || fail "Claude needs one-time setup in $project; run this from a terminal"
+
+  header
   printf 'Claude needs one-time setup for:\n\n  %s\n\n' "$project"
-  printf '%sComplete any login / workspace trust prompts, then use /exit to return here.%s\n\n' "$DIM" "$RESET"
+  printf '%sComplete any login / workspace trust prompts, then type /exit.%s\n\n' "$DIM" "$RESET"
 
   (
     cd "$project"
@@ -216,13 +222,8 @@ onboard_project() {
 }
 
 add_project() {
-  render
-  printf '\n%sPath%s [%s]: ' "$CYAN" "$RESET" "$PWD"
-
-  local input project instance service i
-  IFS= read -er input < "$TTY" || return
-  input="${input:-$PWD}"
-  project="$(expand_path "$input")"
+  local project service i
+  project="$(expand_path "$1")"
 
   if [[ ! -d "$project" ]]; then
     STATUS="Directory not found: $project"
@@ -231,9 +232,7 @@ add_project() {
 
   project="$(cd "$project" && pwd -P)"
   ensure_template
-
-  instance="$(systemd-escape --path "$project")"
-  service="claude-remote@$instance.service"
+  service="$(service_name "$project")"
 
   systemctl --user enable "$service" >/dev/null
   systemctl --user restart "$service"
@@ -257,15 +256,27 @@ add_project() {
   done
 }
 
-delete_selected() {
-  load_projects
-  (( ${#PROJECT_PATHS[@]} )) || return
-
-  local service="${PROJECT_SERVICES[$SELECTED]}"
+remove_service() {
+  local service="$1"
 
   systemctl --user disable --now "$service" >/dev/null 2>&1 || true
   systemctl --user reset-failed "$service" >/dev/null 2>&1 || true
   cleanup_template_if_empty
+}
+
+prompt_add() {
+  render
+  printf '\n%sPath%s [%s]: ' "$CYAN" "$RESET" "$PWD"
+
+  local input
+  IFS= read -er input < "$TTY" || return
+  add_project "${input:-$PWD}"
+}
+
+delete_selected() {
+  load_projects
+  (( ${#PROJECT_PATHS[@]} )) || return
+  remove_service "${PROJECT_SERVICES[$SELECTED]}"
 }
 
 move_up() {
@@ -296,10 +307,9 @@ handle_escape() {
   esac
 }
 
-main() {
-  [[ -r "$TTY" && -w "$TTY" ]] || fail "an interactive terminal is required"
-  have systemctl || fail "systemd is required"
-  have systemd-escape || fail "systemd-escape is required"
+tui() {
+  has_tty || fail "an interactive terminal is required"
+  TUI=1
 
   local key
   while true; do
@@ -309,7 +319,7 @@ main() {
     IFS= read -rsn1 key < "$TTY" || break
     case "$key" in
       q|Q) break ;;
-      a|A) add_project ;;
+      a|A) prompt_add ;;
       d|D) delete_selected ;;
       k) move_up ;;
       j) move_down ;;
@@ -318,6 +328,41 @@ main() {
   done
 
   clear_screen
+}
+
+cli_add() {
+  add_project "$1"
+  [[ -z "$STATUS" ]] || fail "$STATUS"
+  printf '%s●%s %s\n' "$GREEN" "$RESET" "${PROJECT_PATHS[$SELECTED]}"
+}
+
+cli_remove() {
+  local project service
+  project="$(expand_path "$1")"
+  [[ -d "$project" ]] && project="$(cd "$project" && pwd -P)"
+  service="$(service_name "$project")"
+
+  [[ -e "$UNIT_DIR/default.target.wants/$service" ]] || fail "not configured: $project"
+  remove_service "$service"
+  printf 'removed %s\n' "$project"
+}
+
+main() {
+  have systemctl || fail "systemd is required"
+  have systemd-escape || fail "systemd-escape is required"
+  have loginctl || fail "systemd-logind is required"
+
+  # Rewrite an existing template so older installs drop pinned version paths.
+  if [[ -f "$UNIT" ]] && have claude; then
+    ensure_template
+  fi
+
+  case "${1:-}" in
+    "") tui ;;
+    add) cli_add "${2:-$PWD}" ;;
+    remove) cli_remove "${2:?usage: claude-server.sh remove <path>}" ;;
+    *) fail "usage: claude-server.sh [add [path] | remove <path>]" ;;
+  esac
 }
 
 main "$@"
