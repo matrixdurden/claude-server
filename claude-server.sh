@@ -189,6 +189,43 @@ render() {
   printf '\n%s↑↓ select   a add   del delete   q quit%s\n' "$DIM" "$RESET"
 }
 
+# A service stuck on a prompt still looks "active (running)", so check Claude's own
+# config: the Remote Control question was answered and the folder (or a parent) trusted.
+claude_ready() {
+  local project="$1"
+  local config="${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"
+  local dirs=() dir="$project"
+
+  [[ -r "$config" ]] || return 1
+
+  while true; do
+    dirs+=("$dir")
+    [[ "$dir" == "/" ]] && break
+    dir="$(dirname "$dir")"
+  done
+
+  if have jq; then
+    jq -e '. as $c | .remoteDialogSeen == true
+      and any($ARGS.positional[]; $c.projects[.].hasTrustDialogAccepted == true)' \
+      "$config" --args "${dirs[@]}" >/dev/null 2>&1
+  elif have python3; then
+    python3 -c '
+import json, sys
+try:
+    config = json.load(open(sys.argv[1]))
+    projects = config.get("projects") or {}
+    ready = config.get("remoteDialogSeen") is True and any(
+        (projects.get(d) or {}).get("hasTrustDialogAccepted") is True for d in sys.argv[2:])
+except Exception:
+    ready = False
+sys.exit(0 if ready else 1)
+' "$config" "${dirs[@]}"
+  else
+    # Without a JSON reader, onboarding is the safe default.
+    return 1
+  fi
+}
+
 wait_running() {
   local service="$1"
   local i
@@ -209,16 +246,22 @@ onboard_project() {
   local bin
   bin="$(claude_bin)"
 
-  has_tty || fail "Claude needs one-time setup in $project; run this from a terminal"
+  has_tty || fail "Claude Remote Control needs one-time setup in $project; run this from a terminal"
 
   header
-  printf 'Claude needs one-time setup for:\n\n  %s\n\n' "$project"
-  printf '%sComplete any login / workspace trust prompts, then type /exit.%s\n\n' "$DIM" "$RESET"
+  printf 'Claude Remote Control needs one-time setup for:\n\n  %s\n\n' "$project"
+  printf '%sTrust the folder and answer y to "Enable Remote Control?".%s\n' "$DIM" "$RESET"
+  printf '%sWhen it shows Connected, press Ctrl+C.%s\n\n' "$DIM" "$RESET"
 
+  # Run the same command as the service: plain `claude` never asks the Remote Control
+  # question, and an unanswered prompt leaves the TTY-less service waiting forever.
+  # The no-op trap keeps Ctrl+C from ending this script; exec resets it for Claude.
+  trap ':' INT
   (
     cd "$project"
-    "$bin" < "$TTY" > "$TTY" 2>&1
+    exec "$bin" remote-control --spawn same-dir < "$TTY" > "$TTY" 2>&1
   ) || true
+  trap - INT
 }
 
 add_project() {
@@ -234,9 +277,22 @@ add_project() {
   ensure_template
   service="$(service_name "$project")"
 
+  if ! claude_ready "$project"; then
+    systemctl --user stop "$service" >/dev/null 2>&1 || true
+    onboard_project "$project"
+
+    if ! claude_ready "$project"; then
+      # Never leave a service enabled that would wait on a prompt after reboot.
+      remove_service "$service"
+      STATUS="Claude Remote Control setup was not completed for $project"
+      return
+    fi
+  fi
+
   systemctl --user enable "$service" >/dev/null
   systemctl --user restart "$service"
 
+  # Setup is done at this point; a failed start is usually login, so show Claude's output.
   if ! wait_running "$service"; then
     systemctl --user stop "$service" >/dev/null 2>&1 || true
     onboard_project "$project"

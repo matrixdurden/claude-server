@@ -38,7 +38,9 @@ There are no submenus and no confirmation screens.
 
 Pressing `a` asks for a path. Press Enter on an empty path to use the current directory.
 
-If Claude Remote cannot start because the machine needs login, workspace trust, or other first-time Claude setup, the TUI automatically opens Claude in that project. Complete Claude's prompts and use `/exit`; the TUI then starts the Remote Control service and returns to the project list.
+Before starting a service, the script checks `~/.claude.json` (or `$CLAUDE_CONFIG_DIR/.claude.json`) for the two answers a background service cannot give: workspace trust for the project (or a parent folder) and the one-time "Enable Remote Control?" question (`remoteDialogSeen`). If either is missing, or the service fails to start, the TUI opens `claude remote-control` in that project. Trust the folder, answer `y`, and press Ctrl+C once it shows Connected; the TUI then starts the Remote Control service and returns to the project list. If setup was not completed, the project is not added.
+
+Reading the config needs `jq` or `python3`; without either, the setup step runs on every add.
 
 ## Without the TUI
 
@@ -47,7 +49,7 @@ curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/cla
 curl -fsSL https://raw.githubusercontent.com/matrixdurden/claude-server/main/claude-server.sh | bash -s remove ~/projects/api
 ```
 
-`add` without a path uses the current directory. If first-time Claude setup is needed, Claude opens in the project; finish its prompts and type `/exit`.
+`add` without a path uses the current directory. If first-time setup is needed, `claude remote-control` opens in the project; trust the folder, answer `y`, and press Ctrl+C once it shows Connected.
 
 ## Status
 
